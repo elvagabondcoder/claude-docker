@@ -1,0 +1,81 @@
+# claude-docker/docker-compose.yaml
+#
+# Canonical Claude Code dev-environment template.
+#
+# ── How to use in a new project ──────────────────────────────────────────────
+# 1. Copy this file to your project as docker-compose.dev-environment.yaml.
+#    No other edits are required — everything is driven by env vars.
+#
+# 2. Set CLAUDE_DOCKER_DIR in your .env (or shell) to the path of this repo:
+#      CLAUDE_DOCKER_DIR=/workspace/claude-docker   # absolute, always reliable
+#    For sibling projects the default (../claude-docker) works automatically.
+#
+# 3. Set PROJECT_NAME to name the container and hostname:
+#      PROJECT_NAME=myproject
+#
+# 4. Start:
+#      docker compose -f docker-compose.dev-environment.yaml run --rm claude
+#
+# ── Environment variables ─────────────────────────────────────────────────────
+#   CLAUDE_DOCKER_DIR    – path to this repo  (default: ../claude-docker)
+#   PROJECT_NAME         – container/hostname  (default: claude)
+#   INSTALL_GITHUB_CLI   – "true" to bake gh into the image
+#   INSTALL_GITLAB_CLI   – "true" to bake glab into the image
+#   ENABLE_GITEA_MCP     – "true" to add the Gitea MCP server to .mcp.json
+#   ENABLE_APPLE_DOCS_MCP – "true" to add the Apple Docs MCP server to .mcp.json
+#   GITEA_ACCESS_TOKEN   – token for the Gitea MCP server (if using gitea)
+#   GITEA_HOST           – Gitea instance URL (if using gitea)
+#   ANTHROPIC_API_KEY    – API key if not using OAuth (optional)
+
+name: ${PROJECT_NAME:-claude}
+
+services:
+  claude:
+    build:
+      context: ${CLAUDE_DOCKER_DIR:-../claude-docker}
+      dockerfile: Dockerfile
+      args:
+        # CLI tools — set to "true" in .env or environment to include in the image
+        INSTALL_GITHUB_CLI: ${INSTALL_GITHUB_CLI:-false}
+        INSTALL_GITLAB_CLI: ${INSTALL_GITLAB_CLI:-false}
+    image: claude-dev:latest
+    container_name: ${PROJECT_NAME:-claude}
+    stdin_open: true
+    tty: true
+    hostname: ${PROJECT_NAME:-claude}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        /usr/local/bin/claude-init.sh
+        if [ -f /workspace/compose-init.sh ]; then sh /workspace/compose-init.sh; fi
+        exec bash
+    env_file:
+      - path: ./.env
+        required: false
+    environment:
+      # Enables rich iTerm2 notifications through docker exec -it PTYs
+      - TERM_PROGRAM=iTerm.app
+      - GITEA_ACCESS_TOKEN=${GITEA_ACCESS_TOKEN:-}
+      - GITEA_HOST=${GITEA_HOST:-}
+      # Extra args passed to `jcodemunch-mcp init --yes` on first run.
+      # Default installs the Code Exploration Policy into the project CLAUDE.md.
+      - JCODEMUNCH_INIT_ARGS=${JCODEMUNCH_INIT_ARGS:---claude-md project}
+      # Optional MCP servers — set to "true" in .env to enable per project.
+      - ENABLE_GITEA_MCP=${ENABLE_GITEA_MCP:-false}
+      - ENABLE_APPLE_DOCS_MCP=${ENABLE_APPLE_DOCS_MCP:-false}
+    volumes:
+      # Git identity
+      - ./.gitconfig:/home/devops/.gitconfig:ro
+      # Claude Code state & MCP config (per-project, not committed)
+      # Note: ~/.claude.json is symlinked from .claude/claude.json by claude-init.sh
+      # to avoid Docker creating it as a directory when the file doesn't exist.
+      - ./.claude:/home/devops/.claude
+      # jcodemunch code index (per-project, gitignored)
+      - ./.code-index:/home/devops/.code-index
+      # SSH keys (read-only)
+      - ../.ssh:/home/devops/.ssh:ro
+      # Project source
+      - ./:/workspace
+      # Docker-in-Docker for running project containers from inside Claude
+      - /var/run/docker.sock:/var/run/docker.sock
